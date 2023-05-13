@@ -651,7 +651,7 @@ if Code.ensure_loaded?(Ecto) do
             inputs
           end
 
-        results
+        results =
           source.repo
           |> source.run_batch.(queryable, query, col, coerced_inputs, repo_opts)
           |> Enum.map(cardinality_mapper)
