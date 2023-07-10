@@ -3,8 +3,10 @@ defmodule Dataloader.KV do
   Simple KV based Dataloader source.
 
   This module is a simple key value based data loader source. You
-  must supply a function that accepts ids, and returns a map of values
-  keyed by id.
+  must supply a function that accepts a batch key and list of ids,
+  and returns a map of values keyed by id.
+
+  Values may optionally be returned as :ok / :error tuples to indicate success of the operation.
 
   ## Example
 
@@ -43,6 +45,7 @@ defmodule Dataloader.KV do
       `System.schedulers_online/0`).
     * `:timeout` - the maximum amount of time (in milliseconds) a task is
       allowed to execute for. Defaults to `30000`.
+    * `:async?` - set to `false` to disable the asynchronous behavior mentioned above.
   """
   def new(load_function, opts \\ []) do
     max_concurrency = opts[:max_concurrency] || System.schedulers_online() * 2
@@ -51,7 +54,8 @@ defmodule Dataloader.KV do
       load_function: load_function,
       opts: [
         max_concurrency: max_concurrency,
-        timeout: opts[:timeout] || 30_000
+        timeout: opts[:timeout] || 30_000,
+        async?: Keyword.get(opts, :async?, true)
       ]
     }
   end
@@ -118,6 +122,7 @@ defmodule Dataloader.KV do
         case Map.fetch(batch, id) do
           :error -> {:error, "Unable to find id #{inspect(id)}"}
           {:ok, {:error, reason}} -> {:error, reason}
+          {:ok, {:ok, item}} -> {:ok, item}
           {:ok, item} -> {:ok, item}
         end
       else
@@ -128,11 +133,22 @@ defmodule Dataloader.KV do
 
     def run(source) do
       fun = fn {batch_key, ids} ->
-        {batch_key, source.load_function.(batch_key, ids)}
+        id = :erlang.unique_integer()
+        system_time = System.system_time()
+        start_time_mono = System.monotonic_time()
+
+        emit_start_event(id, system_time, batch_key)
+        batch_result = {batch_key, source.load_function.(batch_key, ids)}
+        emit_stop_event(id, start_time_mono, batch_key)
+        batch_result
       end
 
       results =
-        Dataloader.async_safely(Dataloader, :run_tasks, [source.batches, fun, source.opts])
+        if source.opts[:async?] do
+          Dataloader.async_safely(Dataloader, :run_tasks, [source.batches, fun, source.opts])
+        else
+          Dataloader.run_tasks(source.batches, fun, source.opts)
+        end
 
       %{source | batches: %{}, results: merge_results(source.results, results)}
     end
@@ -143,6 +159,24 @@ defmodule Dataloader.KV do
 
     def timeout(%{opts: opts}) do
       opts[:timeout]
+    end
+
+    def async?(%{opts: opts}), do: opts[:async?]
+
+    defp emit_start_event(id, system_time, batch) do
+      :telemetry.execute(
+        [:dataloader, :source, :batch, :run, :start],
+        %{system_time: system_time},
+        %{id: id, batch: batch}
+      )
+    end
+
+    defp emit_stop_event(id, start_time_mono, batch) do
+      :telemetry.execute(
+        [:dataloader, :source, :batch, :run, :stop],
+        %{duration: System.monotonic_time() - start_time_mono},
+        %{id: id, batch: batch}
+      )
     end
   end
 end

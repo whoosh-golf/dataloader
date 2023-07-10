@@ -38,13 +38,13 @@ defmodule Dataloader.EctoTest do
 
     User
     |> where(^Enum.to_list(args))
-    |> then(fn user ->
-      if is_nil(sort_by) or is_nil(sort_order) do
-        user
-      else
-        order_by(user, {^sort_order, ^sort_by})
-      end
-    end)
+    |> (fn user ->
+          if is_nil(sort_by) or is_nil(sort_order) do
+            user
+          else
+            order_by(user, {^sort_order, ^sort_by})
+          end
+        end).()
   end
 
   defp query(queryable, _args, test_pid) do
@@ -57,7 +57,7 @@ defmodule Dataloader.EctoTest do
 
     :ok =
       :telemetry.attach_many(
-        "#{test}",
+        "#{__MODULE__}_#{test}",
         [
           [:dataloader, :source, :batch, :run, :start],
           [:dataloader, :source, :batch, :run, :stop]
@@ -369,9 +369,7 @@ defmodule Dataloader.EctoTest do
         ordered_usernames = Enum.map(loaded_posts, & &1.username)
 
         assert ordered_usernames == expected_usernames,
-               "got #{inspect(ordered_usernames)} but was expecting #{inspect(expected_usernames)} for sort_order #{
-                 sort_order
-               }"
+               "got #{inspect(ordered_usernames)} but was expecting #{inspect(expected_usernames)} for sort_order #{sort_order}"
       end
     end
 
@@ -536,5 +534,30 @@ defmodule Dataloader.EctoTest do
 
     assert Enum.map(users, &Dataloader.get(loader, Test, {User, id: &1.id}, &1.id)) ==
              users
+  end
+
+  test "run inside transaction" do
+    user = %User{username: "Ben Wilson"} |> Repo.insert!()
+
+    source = Dataloader.Ecto.new(Repo, async: false)
+
+    loader =
+      Dataloader.new(async: false)
+      |> Dataloader.add_source(Test, source)
+
+    Dataloader.load(loader, Test, User, user.id)
+
+    Repo.transaction(fn ->
+      loader =
+        loader
+        |> Dataloader.load(Test, User, user.id)
+        |> Dataloader.run()
+
+      loaded =
+        loader
+        |> Dataloader.get(Test, User, user.id)
+
+      assert ^user = loaded
+    end)
   end
 end

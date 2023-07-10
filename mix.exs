@@ -2,13 +2,13 @@ defmodule Dataloader.Mixfile do
   use Mix.Project
 
   @source_url "https://github.com/absinthe-graphql/dataloader"
-  @version "1.0.10"
+  @version "2.0.0-dev"
 
   def project do
     [
       app: :dataloader,
       version: @version,
-      elixir: "~> 1.10",
+      elixir: "~> 1.12",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       package: package(),
@@ -20,7 +20,8 @@ defmodule Dataloader.Mixfile do
       ],
       dialyzer: [
         plt_core_path: "priv/plts",
-        plt_add_apps: [:mix, :ecto, :ecto_sql]
+        plt_add_apps: [:mix, :ecto, :ecto_sql, :opentelemetry_process_propagator],
+        plt_add_deps: :apps_direct
       ]
     ]
   end
@@ -62,9 +63,10 @@ defmodule Dataloader.Mixfile do
     [
       {:telemetry, "~> 1.0 or ~> 0.4"},
       {:ecto, ">= 3.4.3 and < 4.0.0", optional: true},
+      {:opentelemetry_process_propagator, "~> 0.2.1", optional: true},
       {:ecto_sql, "~> 3.0", optional: true, only: :test},
       {:postgrex, "~> 0.14", only: :test, runtime: false},
-      {:dialyxir, "~> 1.0.0", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.3.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.24", only: :dev, runtime: false}
     ]
   end
